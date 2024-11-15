@@ -1,0 +1,348 @@
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+local runService = game:GetService("RunService")
+local TextChatService = game:GetService("TextChatService")
+
+local spinConnection
+local followConnection
+local associatedPlayer
+local owners = {}  -- Use dictionary as a set to track owners by user ID
+local firstOwnerUserId
+local helpPage = {}  -- Track current help page for each player
+
+
+
+-- Function to send a chat message as the bot
+-- Function to send a chat message as the bot
+local function sendChatMessage(message)
+    -- Set character limit only for TextChatService messages
+    local maxMessageLength = 122
+
+    if TextChatService and TextChatService:FindFirstChild("TextChannels") and TextChatService.TextChannels:FindFirstChild("RBXGeneral") then
+        -- Split message if it exceeds character limit for TextChatService
+        if #message > maxMessageLength then
+            local firstPart = message:sub(1, maxMessageLength)
+            local secondPart = message:sub(maxMessageLength + 1)
+            -- Send the first part
+            local success, err = pcall(function()
+                TextChatService.TextChannels.RBXGeneral:SendAsync(firstPart)
+            end)
+            if not success then
+                warn("Failed to send message:", err)
+                sendNotification(firstPart)
+            end
+            -- Send the remaining part with a slight delay
+            wait(0.1)
+            sendChatMessage(secondPart)
+        else
+            -- Send single message if within length limit
+            local success, err = pcall(function()
+                TextChatService.TextChannels.RBXGeneral:SendAsync(message)
+            end)
+            if not success then
+                warn("Failed to send message:", err)
+                sendNotification(message)
+            end
+        end
+    elseif game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") then
+        -- Fallback for legacy chat system without length check
+        game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(message, "All")
+    else
+        warn("No chat system available.")
+        sendNotification(message)
+    end
+end
+
+
+
+-- Notify players that the bot is loaded
+sendChatMessage("Onion bot v1 Loaded. Type .help to start using the bot!")
+
+-- Function to stop all ongoing actions
+local function stopAllActions()
+    if spinConnection then
+        spinConnection:Disconnect()
+        spinConnection = nil
+    end
+    if followConnection then
+        followConnection:Disconnect()
+        followConnection = nil
+    end
+end
+
+-- Function to find a player by username or display name
+local function findPlayerByName(name)
+    for _, player in pairs(Players:GetPlayers()) do
+        if player.Name:lower() == name:lower() or player.DisplayName:lower() == name:lower() then
+            return player
+        end
+    end
+    return nil
+end
+
+-- Function to check if a player is an owner
+local function isOwner(player)
+    return owners[player.UserId] ~= nil
+end
+
+local function addOwner(player)
+    if not isOwner(player) then
+        owners[player.UserId] = player
+        sendChatMessage(player.DisplayName .. " has been added as an owner.")
+    else
+        sendChatMessage(player.DisplayName .. " is already an owner.")
+    end
+end
+
+local function removeOwner(player)
+    if isOwner(player) then
+        owners[player.UserId] = nil
+        sendChatMessage(player.DisplayName .. " has been removed as an owner.")
+    else
+        sendChatMessage(player.DisplayName .. " is not an owner.")
+    end
+end
+
+
+local function showHelpPage(player)
+    local page = helpPage[player.UserId] or 1  -- Default to page 1 if not set
+
+    if page == 1 then
+        sendChatMessage("Commands (Page 1/3): .spin <speed>, .jump, .dance, .undance, .sit, .stop, .come, .credits, .die")
+        sendChatMessage("Type .next to see the next page, or .previous to go back.")
+    elseif page == 2 then
+        sendChatMessage("Commands (Page 2/3): .follow <player>, .unfollow, .say <message>, .addowner <player>, .removeowner <player>, .rizz1, .help")
+        sendChatMessage("Type .next to see the next page, or .previous to go back.")
+    elseif page == 3 then
+        sendChatMessage("Commands (Page 3/3): .rizz2")  -- Add any new commands here
+        sendChatMessage("Type .previous to return to the previous page.")
+    else
+        sendChatMessage("Invalid page. Returning to the first page.")
+        helpPage[player.UserId] = 1
+        showHelpPage(player)
+    end
+end
+
+
+
+-- Function to send the credits message
+local function showCredits()
+    local creditsMessage = "Script developed by Fsociety. Unauthorized copying or reproduction is strictly prohibited."
+    sendChatMessage(creditsMessage)
+end
+
+
+local inactivityTimer = 0
+
+runService.Heartbeat:Connect(function(deltaTime)
+    inactivityTimer = inactivityTimer + deltaTime
+    if inactivityTimer > 300 and associatedPlayer then  -- 5 minutes timeout
+        sendChatMessage("The bot has become inactive and is now unassociated.")
+        associatedPlayer, firstOwnerUserId = nil, nil
+        owners = {}
+        inactivityTimer = 0  -- Reset timer after unassociation
+    end
+end)
+
+
+-- Execute command based on player input
+local function executeCommand(command, argument, player)
+    if not isOwner(player) then
+        sendChatMessage("You do not have permission to control the bot.")
+        return
+    end
+
+    -- Reset timer on each command
+    inactivityTimer = 0
+    
+    if command == "spin" then
+        stopAllActions()
+        local speed = tonumber(argument) or 10
+        sendChatMessage("Spinning at speed " .. speed .. ".")
+        spinConnection = runService.Heartbeat:Connect(function()
+            character:SetPrimaryPartCFrame(character.PrimaryPart.CFrame * CFrame.Angles(0, math.rad(speed), 0))
+        end)
+      
+    elseif command == "jump" then
+        character.Humanoid.Jump = true
+
+    elseif command == "sit" then
+        character.Humanoid.Sit = true
+        sendChatMessage("Sitting down.")
+
+        elseif command == "rizz1" then
+        local rizzPhrase = "Hey, are you a magician? Because whenever I look at you, everyone else disappears!"
+        sendChatMessage(rizzPhrase)
+
+            
+            
+         elseif command == "rizz2" then
+    local rizzPhrase = "Are you a bus? Cuz I wanna fill you with kids."
+    sendChatMessage(rizzPhrase)
+   
+             
+         elseif command == "credits" then
+        showCredits()    
+             
+            
+      elseif command == "come" then
+        -- Check if the player is the associated player
+        if player == associatedPlayer then
+            if player.Character and player.Character.PrimaryPart then
+                -- Teleport the bot to the associated player's position
+                character:SetPrimaryPartCFrame(player.Character.PrimaryPart.CFrame)
+                sendChatMessage("Teleported to " .. player.DisplayName .. ".")
+            else
+                sendChatMessage("Error: Could not find player's position.")
+            end
+        else
+            sendChatMessage("Only the associated player can use this command.")
+        end      
+        
+    elseif command == "addowner" and argument then
+        local targetPlayer = findPlayerByName(argument)
+        if targetPlayer then
+            addOwner(targetPlayer)
+        else
+            sendChatMessage("Player " .. argument .. " not found.")
+        end
+
+    elseif command == "removeowner" and argument then
+        if player.UserId == firstOwnerUserId then
+            local targetPlayer = findPlayerByName(argument)
+            if targetPlayer and isOwner(targetPlayer) then
+                removeOwner(targetPlayer)
+            else
+                sendChatMessage("Player " .. argument .. " is not an owner or not found.")
+            end
+        else
+            sendChatMessage("Only the first owner can remove other owners.")
+        end
+
+    elseif command == "dance" then
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        -- Stop all active animations before starting the dance animation
+        for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
+            track:Stop()
+        end
+
+        -- Load and play the dance animation
+        local danceAnim = Instance.new("Animation")
+        danceAnim.AnimationId = "rbxassetid://12521009666"  -- Replace with the ID you want to use
+        local danceTrack
+
+        -- Load the animation and check for errors
+        local success, err = pcall(function()
+            danceTrack = humanoid:LoadAnimation(danceAnim)
+        end)
+
+        if success and danceTrack then
+            danceTrack:Play()
+            sendChatMessage("Dance animation playing.")
+        else
+            sendChatMessage("Error: Could not load or play the dance animation.")
+            warn("Failed to load or play animation with ID: rbxassetid://12521009666. Error: " .. (err or "unknown error"))
+        end
+    else
+        sendChatMessage("Failed to play dance: Humanoid not found.")
+    end
+
+
+
+    elseif command == "undance" then
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
+            track:Stop()
+        end
+        sendChatMessage("Stopped dancing.")
+    else
+        sendChatMessage("Failed to stop dance: Humanoid not found.")
+    end
+
+    elseif command == "stop" then
+        stopAllActions()
+    elseif command == "help" then
+        helpPage[player.UserId] = 1  -- Start at the first page
+        showHelpPage(player)
+    
+    elseif command == "next" then
+    local currentPage = helpPage[player.UserId] or 1
+    helpPage[player.UserId] = math.min(currentPage + 1, 3)  -- Max pages is now 3
+    showHelpPage(player)
+
+elseif command == "previous" then
+    local currentPage = helpPage[player.UserId] or 1
+    helpPage[player.UserId] = math.max(currentPage - 1, 1)  -- Min page is 1
+    showHelpPage(player)
+
+    
+    elseif command == "die" then
+        character.Humanoid.Health = 0
+    elseif command == "follow" and argument then
+    stopAllActions()
+    local targetPlayer = findPlayerByName(argument)
+    if targetPlayer and targetPlayer.Character then
+        sendChatMessage("Following " .. targetPlayer.DisplayName .. " at a distance of 1 stud.")
+        
+        followConnection = runService.Heartbeat:Connect(function()
+            local targetPosition = targetPlayer.Character.PrimaryPart.Position
+            local botPosition = character.PrimaryPart.Position
+            local direction = (targetPosition - botPosition).unit  -- Calculate unit direction vector
+            local followPosition = targetPosition - direction  -- Offset by 1 stud
+
+            -- Move the bot to the offset position
+            character.Humanoid:MoveTo(followPosition)
+        end)
+    else
+        sendChatMessage("Player " .. argument .. " not found.")
+    end
+
+    elseif command == "unfollow" then
+        if followConnection then
+            stopAllActions()
+            sendChatMessage("Stopped following the player.")
+        else
+            sendChatMessage("Not currently following any player.")
+        end
+    elseif command == "say" and argument then
+        sendChatMessage(argument)
+    end
+end
+
+-- Function to handle player chat commands
+local function onPlayerChat(player)
+    player.Chatted:Connect(function(message)
+        if player == localPlayer then return end
+        if not associatedPlayer and message:lower() == ".help" then
+            associatedPlayer, firstOwnerUserId = player, player.UserId
+            owners[player.UserId] = player
+            sendChatMessage("Associated with " .. player.DisplayName .. ". Only they can control me.")
+        elseif not isOwner(player) then
+            return
+        end
+
+        if message:sub(1, 1) == "." then
+            local args = message:sub(2):split(" ")
+            local command, argument = args[1]:lower(), table.concat(args, " ", 2)
+            executeCommand(command, argument, player)
+        end
+    end)
+end
+
+-- Listen to chat events
+for _, player in pairs(Players:GetPlayers()) do
+    onPlayerChat(player)
+end
+Players.PlayerAdded:Connect(onPlayerChat)
+
+-- Reload bot upon character respawn
+localPlayer.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    character:WaitForChild("Humanoid")
+    stopAllActions()
+    sendChatMessage("Onion bot reloaded. Type .help for command list!")
+end)
